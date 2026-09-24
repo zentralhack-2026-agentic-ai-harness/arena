@@ -21,9 +21,9 @@ class Strategy(ABC):
 
 
 class Game(ABC):
-    """A 2-player game with simultaneous moves."""
+    """A game with simultaneous moves."""
 
-    def __init__(self, seed: int) -> None:
+    def __init__(self, seed: int | None = None) -> None:
         self.seed = seed
 
     @abstractmethod

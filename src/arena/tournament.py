@@ -20,9 +20,7 @@ def summarize(results: list[MatchResult]) -> str:
     stats: dict[str, dict] = {}
     for r in results:
         for seat, name in enumerate(r.players):
-            s = stats.setdefault(
-                name, {"W": 0, "D": 0, "L": 0, "F": 0, "score": 0.0, "n": 0}
-            )
+            s = stats.setdefault(name, {"W": 0, "D": 0, "L": 0, "F": 0, "score": 0.0, "n": 0})
             s["n"] += 1
             s["score"] += r.scores[seat]
             if r.forfeit == seat:
