@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 
 class AlphaGame(Game):
-    # The fixed map (see spec.md, "Map"). Node id -> demand per turn.
+    # The fixed map (see spec.md, "Map").
     # Nodes 0 and 8 are the bases of player 0 and player 1; they have no demand.
 
     N_NODES = 9
@@ -102,18 +102,24 @@ class AlphaGame(Game):
             if not self.action_format_correct_last_turn[player_id]:
                 continue  # malformed action: treat the whole turn as a no-op
 
+            # Drones that can still move this turn: only those present at the start of
+            # the turn. Drones arriving during the turn stay put, so each drone moves
+            # at most one edge per turn.
+            movable = list(self.drone_allocation[player_id])
+
             for from_node, to_node, count in action:
                 valid = (
                     0 <= from_node < self.N_NODES
                     and 0 <= to_node < self.N_NODES
                     and to_node in self.graph[from_node]
-                    and 0 <= count <= self.drone_allocation[player_id][from_node]
+                    and 0 <= count <= movable[from_node]
                 )
 
                 if not valid:
                     self.n_invalid_actions_last_turn[player_id] += 1
                     continue
 
+                movable[from_node] -= count
                 self.drone_allocation[player_id][from_node] -= count
                 self.drone_allocation[player_id][to_node] += count
 
