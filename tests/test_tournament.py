@@ -1,4 +1,6 @@
-from arena import round_robin, summarize
+import pytest
+
+from arena import Entrant, round_robin, summarize
 from tests.dummy_game import Crash, DummyGame, High, Low
 
 
@@ -16,3 +18,13 @@ def test_summary_counts():
     rows = {line.split()[0]: line.split()[1:] for line in table.splitlines()[1:]}
     assert rows["High"][:4] == ["6", "0", "0", "0"]  # W D L F
     assert rows["Low"][:4] == ["0", "0", "6", "0"]
+
+
+def test_same_class_under_different_ids():
+    results = round_robin(DummyGame, [Entrant("a", High), Entrant("b", High)], seeds=[0])
+    assert sorted(tuple(r.players) for r in results) == [("a", "b"), ("b", "a")]
+
+
+def test_duplicate_ids_rejected():
+    with pytest.raises(ValueError, match="unique"):
+        round_robin(DummyGame, [High, Entrant("High", Low)], seeds=[0])

@@ -1,17 +1,25 @@
 from itertools import permutations
 
-from arena.core import Game, MatchResult, Strategy
+from arena.core import Entrant, Game, MatchResult, Strategy
 from arena.match import play_match
 
 
 def round_robin(
-    game_cls: type[Game], strategy_classes: list[type[Strategy]], seeds: list[int]
+    game_cls: type[Game], entrants: list[Entrant | type[Strategy]], seeds: list[int]
 ) -> list[MatchResult]:
-    """Every strategy plays every other one, in both seats, once per seed."""
+    """Every entrant plays every other one, in both seats, once per seed.
+
+    Entrants may be given as bare strategy classes; their class name is then the id.
+    Ids must be unique.
+    """
+    entrants = [Entrant.of(e) for e in entrants]
+    ids = [e.id for e in entrants]
+    duplicates = sorted({i for i in ids if ids.count(i) > 1})
+    if duplicates:
+        raise ValueError(f"entrant ids must be unique, got duplicates: {duplicates}")
+
     return [
-        play_match(game_cls, [a, b], seed)
-        for a, b in permutations(strategy_classes, 2)
-        for seed in seeds
+        play_match(game_cls, [a, b], seed) for a, b in permutations(entrants, 2) for seed in seeds
     ]
 
 

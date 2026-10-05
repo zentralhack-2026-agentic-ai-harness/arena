@@ -1,4 +1,6 @@
-from arena import play_match
+import json
+
+from arena import Entrant, play_match
 from tests.dummy_game import Crash, DummyGame, High, Low
 
 
@@ -34,3 +36,16 @@ def test_seed_reaches_game():
 
     play_match(DummyGame, [Spy, Low], seed=42)
     assert set(seen) == {42}
+
+
+def test_entrant_ids_are_reported():
+    r = play_match(DummyGame, [Entrant("a", High), Entrant("b", High)], seed=0)
+    assert r.players == ["a", "b"]
+
+
+def test_forfeit_reason_and_to_dict():
+    d = play_match(DummyGame, [High, Crash], seed=0).to_dict()
+    assert d["forfeit"] == 1
+    assert d["forfeit_reason"] == "exception"
+    assert d["winner"] == 0
+    assert json.loads(json.dumps(d)) == d

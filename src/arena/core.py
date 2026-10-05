@@ -5,7 +5,7 @@ each game's spec.md, not by this module.
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any
 
 
@@ -43,13 +43,31 @@ class Game(ABC):
         """Cumulative score per player (index = player_id)."""
 
 
+@dataclass(frozen=True)
+class Entrant:
+    """A strategy entered into matches under a unique id.
+
+    Results report the id, not the class name: submissions from different harnesses
+    may well share a class name.
+    """
+
+    id: str
+    strategy: type[Strategy]
+
+    @classmethod
+    def of(cls, strategy: "Entrant | type[Strategy]") -> "Entrant":
+        """Wrap a bare strategy class, using its class name as the id."""
+        return strategy if isinstance(strategy, Entrant) else cls(strategy.__name__, strategy)
+
+
 @dataclass
 class MatchResult:
-    players: list[str]  # strategy class names, by seat
+    players: list[str]  # entrant ids, by seat
     seed: int
     scores: list[float]
     turns: int
-    forfeit: int | None = None  # seat whose strategy crashed
+    forfeit: int | None = None  # seat whose strategy failed
+    forfeit_reason: str | None = None  # "exception"
     error: str | None = None
 
     @property
@@ -60,3 +78,7 @@ class MatchResult:
         if self.scores[0] == self.scores[1]:
             return None
         return 0 if self.scores[0] > self.scores[1] else 1
+
+    def to_dict(self) -> dict:
+        """JSON-serialisable form, including the derived winner."""
+        return {**asdict(self), "winner": self.winner}

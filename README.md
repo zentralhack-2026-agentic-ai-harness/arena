@@ -1,6 +1,7 @@
 # arena
 
-The game interface, the match/tournament simulator, and the dev games.
+The game interface and the match/tournament simulator. The games live in their own packages
+(e.g. `arena-games-dev`), so installing `arena` never ships any game source.
 
 ## Use as a dependency
 
@@ -30,29 +31,32 @@ Observations and actions are plain dicts. Their contents are defined by each gam
 
 If a strategy raises an exception, it forfeits the match.
 
+Matches and tournaments take **entrants**: `Entrant(id, strategy_cls)`. Results are reported by
+id, because submissions from different harnesses may share a class name. A bare strategy class
+is accepted too and gets its class name as id.
+
 ## Running a tournament
 
 ```bash
-uv run arena run --game arena.games.alpha:AlphaGame \
-              --strategies arena.games.alpha.baselines:DoNothing my_bot.py:MyBot \
+uv run arena run --game arena_games_dev.alpha:AlphaGame \
+              --strategies arena_games_dev.alpha.baselines:DoNothing \
+                           team_a=a/strategy.py:Strategy team_b=b/strategy.py:Strategy \
               --seeds 10
 ```
 
-Every strategy plays every other one in both seats, once per seed. Games and strategies are
-referenced as `package.module:Name` or `path/to/file.py:Name`.
+Every entrant plays every other one in both seats, once per seed. Games and strategies are
+referenced as `package.module:Name` or `path/to/file.py:Name`, optionally prefixed with `id=`
+(the id defaults to the class name and must be unique).
 
 From Python:
 
 ```python
-from arena import round_robin, summarize
-from arena.games.alpha import AlphaGame
-from arena.games.alpha.baselines import DoNothing
+from arena import Entrant, round_robin, summarize
+from arena_games_dev.alpha import AlphaGame
+from arena_games_dev.alpha.baselines import DoNothing
 
-print(summarize(round_robin(AlphaGame, [DoNothing, MyBot], seeds=range(10))))
+results = round_robin(AlphaGame, [DoNothing, Entrant("mine", MyBot)], seeds=range(10))
+print(summarize(results))
 ```
 
-## Games
-
-| game  | status |
-|-------|--------|
-| alpha | stub   |
+`MatchResult.to_dict()` gives a JSON-serialisable record of a match.

@@ -1,18 +1,13 @@
 [project]
 name = "arena"
 version = "0.1.0"
-description = "Game interface, match simulator and dev games for Zentral Hack 2026"
+description = "Game interface and match/tournament simulator for Zentral Hack 2026"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = []
 
 [project.scripts]
 arena = "arena.cli:main"
-
-[project.optional-dependencies]
-render = [
-    "matplotlib>=3.11.2",
-]
 
 [dependency-groups]
 dev = ["pytest", "ruff"]
