@@ -64,9 +64,52 @@ cd arena-games-dev
 uv run --with-editable ../arena arena run --game arena_games_dev.alpha:AlphaGame ...
 ```
 
-Every entrant plays every other one in both seats, once per seed. Games and strategies are
-referenced as `package.module:Name` or `path/to/file.py:Name`, optionally prefixed with `id=`
-(the id defaults to the class name and must be unique).
+Every entrant plays every other one in both seats, once per seed. With `--panel X Y ...` the
+strategies play only the panel members instead (and the panel members not each other).
+`--workers N` plays N matches in parallel; results are the same, in the same order.
+
+A game is referenced as a class (`package.module:Name`) or as a **game package**: a module that
+exports `GAME` (the class), `BASELINES` (strategy classes) and `SPEC` (path to `spec.md`), e.g.
+`arena_games_dev.alpha`. Strategies are referenced as `package.module:Name` or
+`path/to/file.py:Name`, optionally prefixed with `id=` (the id defaults to the class name and
+must be unique).
+
+## Other commands
+
+**`arena check`**: conformance. Plays the strategy, isolated, against `arena.strategies:Idle`
+(always a no-op) in both seats. Passes if it never forfeits, which says nothing about how well
+it plays. Exit code 0 or 1; `--json report.json` writes the full match records.
+
+```bash
+uv run arena check out/strategy.py:Strategy --game arena_games_dev.alpha
+```
+
+**`arena make-task`**: writes the task directory a harness receives: the game's `spec.md` and
+a `task.json` with the contract (`strategy_file`, `strategy_class`) and the budget fields given.
+
+```bash
+uv run arena make-task --game arena_games_dev.alpha --out tasks/alpha \
+              --budget-usd 1 --deadline-s 1800 --model gpt-5-nano
+```
+
+**`arena tournament job.json`**: a tournament described by a file, written one JSON line per
+match to `--out` (default `matches.jsonl`) as matches finish. Relative strategy paths resolve
+against the job file's directory. `panel`, `isolate` (default `true`), `limits` (fields of
+`arena.Limits`) and `workers` are optional; without `panel` it is all-vs-all.
+
+```json
+{
+  "game": "arena_games_dev.alpha",
+  "entrants": [
+    {"id": "team_a", "strategy": "a/strategy.py:Strategy"},
+    {"id": "team_b", "strategy": "b/strategy.py:Strategy", "python": "/venvs/b/bin/python"}
+  ],
+  "panel": [{"id": "spread", "strategy": "arena_games_dev.alpha.baselines:ProportionalSpread"}],
+  "seeds": [0, 1, 2, 3, 4],
+  "limits": {"turn_timeout": 1.0},
+  "workers": 8
+}
+```
 
 From Python:
 
@@ -79,7 +122,9 @@ results = round_robin(AlphaGame, [DoNothing, Entrant("mine", MyBot)], seeds=rang
 print(summarize(results))
 ```
 
-`MatchResult.to_dict()` gives a JSON-serialisable record of a match.
+`MatchResult.to_dict()` gives a JSON-serialisable record of a match. `round_robin(...,
+panel=..., workers=...)` mirrors the CLI; `pairings` and `iter_matches` (results as they come)
+are the building blocks.
 
 ## Isolation
 

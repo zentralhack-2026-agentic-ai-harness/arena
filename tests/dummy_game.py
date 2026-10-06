@@ -4,6 +4,8 @@ Each turn both players pick a number 0-9; the higher number scores 1 point.
 Anything that isn't an int in 0-9 counts as 0 (illegal action = no-op).
 """
 
+from pathlib import Path
+
 from arena.core import Game, Strategy
 
 
@@ -51,3 +53,9 @@ class Low(Strategy):
 class Crash(Strategy):
     def act(self, obs: dict) -> dict:
         raise RuntimeError("boom")
+
+
+# Game package exports (see arena.loading.load_game_package).
+GAME = DummyGame
+BASELINES = [High, Low]
+SPEC = Path(__file__).with_name("dummy_spec.md")
