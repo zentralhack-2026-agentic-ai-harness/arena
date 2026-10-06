@@ -28,11 +28,19 @@ class Game(ABC):
 
     @abstractmethod
     def observe(self, player_id: int) -> dict:
-        """Return what `player_id` can see right now."""
+        """Return what `player_id` can see right now.
+
+        Must be a Python literal (dicts, lists, tuples, str, int, float, bool, None), so that
+        it can be sent to an isolated strategy.
+        """
 
     @abstractmethod
     def step(self, actions: list[Any]) -> None:
-        """Apply one action per player (index = player_id). Illegal actions are no-ops."""
+        """Apply one action per player (index = player_id).
+
+        Illegal actions are no-ops. This includes any value the game cannot interpret,
+        e.g. None, which an isolated match passes for a reply that is not a Python literal.
+        """
 
     @abstractmethod
     def is_over(self) -> bool:
@@ -49,15 +57,24 @@ class Entrant:
 
     Results report the id, not the class name: submissions from different harnesses
     may well share a class name.
+
+    `strategy` is a class or a target ("path/to/file.py:Name" or "package.module:Name").
+    Isolated matches never load a target in the referee. `python` is the interpreter an
+    isolated worker runs under (default: the referee's); it requires a target.
     """
 
     id: str
-    strategy: type[Strategy]
+    strategy: "type[Strategy] | str"
+    python: str | None = None
 
     @classmethod
-    def of(cls, strategy: "Entrant | type[Strategy]") -> "Entrant":
-        """Wrap a bare strategy class, using its class name as the id."""
-        return strategy if isinstance(strategy, Entrant) else cls(strategy.__name__, strategy)
+    def of(cls, strategy: "Entrant | type[Strategy] | str") -> "Entrant":
+        """Wrap a bare strategy class or target, using its class name as the id."""
+        if isinstance(strategy, Entrant):
+            return strategy
+        if isinstance(strategy, str):
+            return cls(strategy.rpartition(":")[2], strategy)
+        return cls(strategy.__name__, strategy)
 
 
 @dataclass
@@ -67,7 +84,7 @@ class MatchResult:
     scores: list[float]
     turns: int
     forfeit: int | None = None  # seat whose strategy failed
-    forfeit_reason: str | None = None  # "exception"
+    forfeit_reason: str | None = None  # "exception", "timeout", "crash" or "protocol"
     error: str | None = None
 
     @property

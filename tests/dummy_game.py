@@ -33,8 +33,8 @@ class DummyGame(Game):
         return list(self._scores)
 
     @staticmethod
-    def _pick(action: dict) -> int:
-        n = action.get("n")
+    def _pick(action) -> int:
+        n = action.get("n") if isinstance(action, dict) else None
         return n if isinstance(n, int) and 0 <= n <= 9 else 0
 
 
