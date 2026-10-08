@@ -20,38 +20,69 @@ def play_match(
     arena.isolation); without it, strategies share this interpreter and `limits` is ignored.
 
     A strategy that fails (raises; and when isolated: times out, crashes or breaks the
-    protocol) forfeits and the match stops. Errors raised by the game itself are not caught:
+    protocol) forfeits: its score is frozen at that moment, and for the rest of the match its
+    seat plays None (a no-op), so that the other seats still play, and score, to the end.
+    `forfeit` is the first seat that failed. Errors raised by the game itself are not caught:
     those are bugs in the game.
     """
     entrants = [Entrant.of(e) for e in entrants]
     game = game_cls(seed)
-    result = MatchResult(players=[e.id for e in entrants], seed=seed, scores=[], turns=0)
+    n = len(entrants)
+    result = MatchResult(
+        players=[e.id for e in entrants], seed=seed, scores=[], turns=0, forfeit_turns=[None] * n
+    )
+    frozen: dict[int, float] = {}  # seat -> its score when it failed
+
+    def fail(failure: StrategyFailure) -> None:
+        seat = failure.player_id
+        frozen[seat] = game.scores()[seat]
+        result.forfeit_turns[seat] = result.turns
+        if result.forfeit is None:
+            result.forfeit = seat
+            result.forfeit_reason = failure.reason
+            result.error = failure.error
+        if players[seat] is not None:
+            players[seat].close()
+            players[seat] = None
 
     limits = limits or Limits()
-    players = []
+    players: list = []
     try:
         for player_id, e in enumerate(entrants):  # isolated workers start booting here
-            if isolate:
-                players.append(_isolated_player(e, player_id, limits))
-            else:
-                players.append(InProcessPlayer(e.strategy, player_id))
+            try:
+                if isolate:
+                    players.append(_isolated_player(e, player_id, limits))
+                else:
+                    players.append(InProcessPlayer(e.strategy, player_id))
+            except StrategyFailure as failure:
+                players.append(None)
+                fail(failure)
         for player in players:
-            player.start()
-        while not game.is_over():
+            _guard(player, fail, lambda p: p.start())
+        while not game.is_over() and len(frozen) < n:
             for player_id, player in enumerate(players):
-                player.send(game.observe(player_id))
-            game.step([player.receive() for player in players])
+                _guard(player, fail, lambda p, i=player_id: p.send(game.observe(i)))
+            actions = [_guard(player, fail, lambda p: p.receive()) for player in players]
+            game.step(actions)
             result.turns += 1
-    except StrategyFailure as failure:
-        result.forfeit = failure.player_id
-        result.forfeit_reason = failure.reason
-        result.error = failure.error
     finally:
         for player in players:
-            player.close()
+            if player is not None:
+                player.close()
 
-    result.scores = game.scores()
+    result.scores = [frozen.get(seat, score) for seat, score in enumerate(game.scores())]
     return result
+
+
+def _guard(player, fail, call):
+    """call(player) unless the seat has failed; None (a no-op) for a failed seat."""
+    if player is None:
+        return None
+    try:
+        return call(player)
+    except StrategyFailure as failure:
+        fail(failure)
+        return None
 
 
 def _isolated_player(entrant: Entrant, player_id: int, limits: Limits) -> IsolatedPlayer:

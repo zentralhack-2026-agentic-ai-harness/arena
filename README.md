@@ -31,7 +31,10 @@ Everything is in [`src/arena/core.py`](src/arena/core.py):
 Observations and actions are Python literals (dicts, lists, tuples, numbers, strings, bools,
 `None`). Their contents are defined by each game's `spec.md`.
 
-If a strategy raises an exception, it forfeits the match.
+If a strategy raises an exception, it forfeits the match: its score is frozen at that turn,
+its seat plays `None` (a no-op) from then on, and the other seat plays, and scores, to the end.
+`MatchResult.forfeit` is the first seat that failed, `forfeit_turns` the turn per seat (or
+`None`), and `winner` counts a forfeit as a loss whatever the scores.
 
 Matches and tournaments take **entrants**: `Entrant(id, strategy)`, where `strategy` is a class
 or a target string (see below). Results are reported by id, because submissions from different
@@ -153,8 +156,9 @@ cannot interpret (including `None`) as a no-op.
 
 **Separate users.** With `Limits(uid_base=1001)` (`--uid-base 1001` for `run` and `check`,
 `limits.uid_base` in a job file) every worker runs under a uid and gid of its own, without
-supplementary groups: `uid_base + 2 * slot + seat`, where `slot` is the index of the process
-playing the match (`--workers`), so no two live workers share a uid. A worker then cannot
+supplementary groups: `uid_base + max_seats * slot + seat`, where `slot` is the index of the
+process playing the match (`--workers`) and `Limits.max_seats` (default 8) the most players a
+match may have, so no two live workers share a uid. A match with more seats raises. A worker then cannot
 signal the referee or the other seat, read their `/proc` entries or write their files, and
 when the match ends every process of its uid is killed, also those it detached. A worker
 may start at most `Limits.max_processes` processes. `Entrant(..., trusted=True)` (a

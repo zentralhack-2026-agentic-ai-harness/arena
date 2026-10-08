@@ -22,8 +22,33 @@ def test_forfeit_on_exception():
     r = play_match(DummyGame, [High, Crash], seed=0)
     assert r.forfeit == 1
     assert r.winner == 0
-    assert r.turns == 0
+    assert r.forfeit_turns == [None, 0]
+    assert r.turns == 3  # the other seat plays to the end
+    assert r.scores == [3.0, 0.0]
     assert "boom" in r.error
+
+
+class CrashAtTurn2(High):
+    def act(self, obs):
+        if obs["turn"] == 2:
+            raise RuntimeError("late boom")
+        return super().act(obs)
+
+
+def test_forfeit_freezes_the_score_and_the_others_play_on():
+    r = play_match(DummyGame, [CrashAtTurn2, Low], seed=0)
+    assert (r.forfeit, r.forfeit_turns) == (0, [2, None])
+    assert r.turns == 3
+    assert r.scores == [2.0, 1.0]  # 2 earned before failing; Low wins turn 2 against a no-op
+    assert r.winner == 1
+
+
+def test_match_stops_when_every_seat_has_failed():
+    r = play_match(DummyGame, [Crash, CrashAtTurn2], seed=0)
+    assert r.forfeit == 0  # the first to fail
+    assert r.forfeit_turns == [0, 2]
+    assert r.turns == 3  # turn 2 is still played (by no one), then the match stops
+    assert r.scores == [0.0, 2.0]
 
 
 def test_seed_reaches_game():

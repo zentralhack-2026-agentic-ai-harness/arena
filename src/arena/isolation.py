@@ -53,8 +53,10 @@ class Limits:
     init_timeout: float = 10.0  # seconds for interpreter start, import and __init__
     memory_mb: int | None = 2048  # address space of the worker (RLIMIT_AS)
     max_reply_bytes: int = 1_000_000  # longest accepted repr(action)
-    # Untrusted workers run as uid (and gid) uid_base + 2 * slot + seat; None: as the referee.
+    # Untrusted workers run as uid (and gid) uid_base + max_seats * slot + seat, so that every
+    # seat of every concurrent match has a uid of its own; None: as the referee.
     uid_base: int | None = None
+    max_seats: int = 8  # uids reserved per slot: the most players a match may have
     max_processes: int = 64  # per worker uid (RLIMIT_NPROC); only applies with uid_base
 
 
@@ -72,7 +74,9 @@ def seat_user(limits: Limits, player_id: int) -> int | None:
     """The uid an untrusted worker in seat `player_id` runs as, or None."""
     if limits.uid_base is None:
         return None
-    return limits.uid_base + 2 * _slot + player_id
+    if not 0 <= player_id < limits.max_seats:
+        raise ValueError(f"seat {player_id} needs Limits.max_seats > {player_id}")
+    return limits.uid_base + limits.max_seats * _slot + player_id
 
 
 class StrategyFailure(Exception):

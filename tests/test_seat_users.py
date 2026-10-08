@@ -8,13 +8,45 @@ from pathlib import Path
 import pytest
 
 from arena import Entrant, Limits, play_match, round_robin
+from arena.isolation import seat_user, set_slot
 from tests import bad_strategies as bad
 from tests.dummy_game import DummyGame, High
 
-pytestmark = pytest.mark.skipif(os.geteuid() != 0, reason="switching uids needs root")
+needs_root = pytest.mark.skipif(os.geteuid() != 0, reason="switching uids needs root")
 
 BASE = 1001
 LIMITS = Limits(turn_timeout=0.5, init_timeout=2.0, uid_base=BASE)
+SEATS = LIMITS.max_seats
+
+
+class ThreeSeats(DummyGame):
+    """DummyGame with a third seat that never scores."""
+
+    def scores(self):
+        return [*super().scores(), 0.0]
+
+
+@pytest.fixture
+def slot():
+    """Pretend to be the process in another slot; back to slot 0 afterwards."""
+    yield set_slot
+    set_slot(0)
+
+
+def test_uids_never_overlap(slot):
+    uids = []
+    for s in range(16):
+        slot(s)
+        uids += [seat_user(LIMITS, seat) for seat in range(SEATS)]
+    assert len(set(uids)) == len(uids) == 16 * SEATS
+    assert min(uids) == BASE
+
+
+def test_more_seats_than_reserved_raise():
+    with pytest.raises(ValueError, match="max_seats"):
+        seat_user(LIMITS, SEATS)
+    assert seat_user(Limits(uid_base=BASE, max_seats=12), 11) == BASE + 11
+    assert seat_user(Limits(), 99) is None  # no uid_base: no limit on seats
 
 
 def play(*seats):
@@ -35,6 +67,7 @@ def users_of(uid: int) -> list[int]:
     return pids
 
 
+@needs_root
 @pytest.mark.parametrize("seat", [0, 1])
 def test_each_seat_has_its_own_user(seat):
     seats = [High, High]
@@ -45,29 +78,46 @@ def test_each_seat_has_its_own_user(seat):
     assert f"uid={uid} gid={uid} groups=[]" in r.error
 
 
+@needs_root
+@pytest.mark.parametrize("seat", [0, 1, 2])
+def test_three_seats_in_another_slot(slot, seat):
+    slot(3)
+    seats = [High, High, High]
+    seats[seat] = bad.WhoAmI
+    r = play_match(ThreeSeats, seats, seed=0, isolate=True, limits=LIMITS)
+    assert r.forfeit == seat
+    uid = BASE + 3 * SEATS + seat
+    assert f"uid={uid} gid={uid} groups=[]" in r.error
+
+
+@needs_root
 def test_trusted_entrant_keeps_the_referee_user():
     r = play(High, Entrant("me", "tests.bad_strategies:WhoAmI", trusted=True))
     assert f"uid={os.getuid()} " in r.error
 
 
+@needs_root
 def test_cannot_kill_the_referee_or_the_opponent():
     r = play(High, bad.Intruder)
     assert r.forfeit is None
     assert r.scores == [0.0, 0.0]  # both pick 9 every turn
 
 
+@needs_root
 def test_leftover_processes_are_killed():
     r = play(High, bad.Lingerer)
     assert r.forfeit is None
     assert users_of(BASE + 1) == []
 
 
+@needs_root
 def test_cannot_write_its_working_directory():
     r = play(High, bad.Scribbler)
     assert (r.forfeit, r.forfeit_reason) == (1, "exception")
     assert "PermissionError" in r.error
 
 
+@needs_root
 def test_strategy_file_need_not_be_readable_by_its_worker(tmp_path):
     path = tmp_path / "strategy.py"
     path.write_text(
@@ -88,6 +138,7 @@ def test_strategy_file_need_not_be_readable_by_its_worker(tmp_path):
     assert r.forfeit is None, r.error
 
 
+@needs_root
 def test_parallel_matches_use_separate_users():
     results = round_robin(
         DummyGame,
@@ -100,5 +151,5 @@ def test_parallel_matches_use_separate_users():
     )
     for r in results:
         uid = int(r.error.split("RuntimeError: uid=")[1].split()[0])
-        assert BASE <= uid < BASE + 4
-        assert (uid - BASE) % 2 == r.forfeit  # the seat
+        slot, seat = divmod(uid - BASE, SEATS)
+        assert slot in (0, 1) and seat == r.forfeit
