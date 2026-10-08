@@ -58,6 +58,11 @@ def main(argv: list[str] | None = None) -> int:
     task.add_argument("--budget-usd", type=float)
     task.add_argument("--deadline-s", type=float)
     task.add_argument("--model", action="append", dest="models", help="allowed model; repeat")
+    task.add_argument(
+        "--prices",
+        type=Path,
+        help='JSON {"model": {"input": usd_per_1m, "output": ...}} (default: arena\'s table)',
+    )
     task.set_defaults(handler=_make_task)
 
     tournament = sub.add_parser("tournament", help="run a tournament described by a job file")
@@ -145,6 +150,7 @@ def _make_task(args) -> None:
         budget_usd=args.budget_usd,
         deadline_s=args.deadline_s,
         allowed_models=args.models,
+        prices=json.loads(args.prices.read_text()) if args.prices else None,
     )
     print(f"wrote {out / 'spec.md'} and {out / 'task.json'}")
 

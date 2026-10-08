@@ -59,9 +59,21 @@ def test_check_passes_and_fails(tmp_path, capsys):
 
 
 def test_make_task(tmp_path):
+    prices = tmp_path / "prices.json"
+    prices.write_text(
+        json.dumps(
+            {
+                "gpt-5-nano": {"input": 0.05, "output": 0.4},
+                "gpt-5-mini": {"input": 0.25, "output": 2.0},
+                "other": {"input": 9, "output": 9},
+            }
+        )
+    )
     main(
         [
             "make-task",
+            "--prices",
+            str(prices),
             "--game",
             "tests.dummy_game",
             "--out",
@@ -80,6 +92,8 @@ def test_make_task(tmp_path):
     assert task["budget_usd"] == 1.5
     assert task["allowed_models"] == ["gpt-5-nano", "gpt-5-mini"]
     assert task["strategy_file"] == "strategy.py"
+    assert set(task["prices"]) == {"gpt-5-nano", "gpt-5-mini"}  # the allowed ones only
+    assert task["contract_version"] == "0.2"
 
 
 def test_tournament_job(tmp_path, capsys):

@@ -88,49 +88,38 @@ uv run arena check out/strategy.py:Strategy --game arena_games_dev.alpha
 ```
 
 **`arena make-task`**: writes the task directory a harness receives: the game's `spec.md` and
-a `task.json` with the contract (`strategy_file`, `strategy_class`) and the budget fields given.
+a `task.json` with the contract (`strategy_file`, `strategy_class`), the budget fields given and
+`prices` for the allowed models: USD per 1M tokens, from arena's own table
+([`prices.json`](src/arena/prices.json)) unless `--prices` names another file of the same shape.
+Every allowed model needs a price.
 
 ```bash
 uv run arena make-task --game arena_games_dev.alpha --out tasks/alpha \
-              --budget-usd 1 --deadline-s 1800 --model gpt-5-nano
+              --budget-usd 1 --deadline-s 1800 --model gpt-6-luna --model gpt-6.1-sol
 ```
 
-**`arena tournament job.json`**: a tournament described by a file, written one JSON line per
-match to `--out` (default `matches.jsonl`) as matches finish. Relative strategy paths resolve
-against the job file's directory. `panel`, `isolate` (default `true`), `limits` (fields of
-`arena.Limits`) and `workers` are optional; without `panel` it is all-vs-all. An entry with
-`"trusted": true` keeps the referee's uid under `limits.uid_base` (see Isolation).
+**Tracking your spend.** At evaluation, a call is charged exactly
+`arena.pricing.cost(usage, task["prices"][model])`, at OpenAI's Standard-tier prices per 1M
+tokens (other tiers are refused):
 
-```json
-{
-  "game": "arena_games_dev.alpha",
-  "entrants": [
-    {"id": "team_a", "strategy": "a/strategy.py:Strategy"},
-    {"id": "team_b", "strategy": "b/strategy.py:Strategy", "python": "/venvs/b/bin/python"}
-  ],
-  "panel": [
-    {"id": "spread", "strategy": "arena_games_dev.alpha.baselines:ProportionalSpread", "trusted": true}
-  ],
-  "seeds": [0, 1, 2, 3, 4],
-  "limits": {"turn_timeout": 1.0, "uid_base": 1001},
-  "workers": 8
-}
+```
+cost = (uncached × input + cached × cached_input + cache_write × cache_write + output × output) / 1e6
 ```
 
-From Python:
+- `cached` and `cache_write` are `usage.input_tokens_details.cached_tokens` and
+  `.cache_write_tokens`; `uncached` is the rest of `usage.input_tokens`.
+- `output` is `usage.output_tokens`, reasoning tokens included.
+- **Long context:** a call whose input exceeds the model's
+  `long_context.above_input_tokens` is charged *entirely* at its long-context prices. This is
+  deliberately conservative; keep your inputs below the threshold if you can.
+
+A harness can add it up after every call to manage its budget:
 
 ```python
-from arena import Entrant, round_robin, summarize
-from arena_games_dev.alpha import AlphaGame
-from arena_games_dev.alpha.baselines import DoNothing
+from arena.pricing import cost
 
-results = round_robin(AlphaGame, [DoNothing, Entrant("mine", MyBot)], seeds=range(10))
-print(summarize(results))
+spent += cost(response.usage, task["prices"][model])  # the openai SDK's usage, or a dict
 ```
-
-`MatchResult.to_dict()` gives a JSON-serialisable record of a match. `round_robin(...,
-panel=..., workers=...)` mirrors the CLI; `pairings` and `iter_matches` (results as they come)
-are the building blocks.
 
 ## Isolation
 
