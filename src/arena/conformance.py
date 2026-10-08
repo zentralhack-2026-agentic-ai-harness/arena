@@ -16,7 +16,7 @@ def check_strategy(
     The strategy conforms if it never forfeits. This says nothing about how well it plays.
     """
     candidate = Entrant("candidate", target, python=python)
-    idle = Entrant("idle", "arena.strategies:Idle")
+    idle = Entrant("idle", "arena.strategies:Idle", trusted=True)
     results = [
         play_match(game_cls, seats, seed, isolate=True, limits=limits)
         for seed in seeds or [0]

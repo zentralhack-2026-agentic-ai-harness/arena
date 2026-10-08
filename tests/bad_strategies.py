@@ -2,6 +2,8 @@
 
 import gc
 import os
+import signal
+import subprocess
 import sys
 import time
 
@@ -80,3 +82,66 @@ class Echo(Strategy):
 
     def act(self, obs):
         return FakeInt() if obs.get("fake") else obs["reply"]
+
+
+class WhoAmI(Strategy):
+    """Raises with the identity it runs under, so that the forfeit error shows it."""
+
+    def __init__(self, player_id):
+        raise RuntimeError(f"uid={os.getuid()} gid={os.getgid()} groups={os.getgroups()}")
+
+    def act(self, obs):
+        return {"n": 9}
+
+
+class Intruder(Strategy):
+    """Tries to kill the referee and every other worker, then plays on."""
+
+    def __init__(self, player_id):
+        super().__init__(player_id)
+        for pid in [os.getppid(), *_other_workers()]:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except (PermissionError, ProcessLookupError):
+                pass
+
+    def act(self, obs):
+        return {"n": 9}
+
+
+class Lingerer(Strategy):
+    """Leaves a process behind, outside its process group."""
+
+    def __init__(self, player_id):
+        super().__init__(player_id)
+        subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=True
+        )
+
+    def act(self, obs):
+        return {"n": 9}
+
+
+class Scribbler(Strategy):
+    """Writes into its working directory."""
+
+    def __init__(self, player_id):
+        super().__init__(player_id)
+        with open("scribble.txt", "w") as f:
+            f.write("x")
+
+    def act(self, obs):
+        return {"n": 9}
+
+
+def _other_workers() -> list[int]:
+    pids = []
+    for entry in os.listdir("/proc"):
+        if entry.isdigit() and int(entry) != os.getpid():
+            try:
+                with open(f"/proc/{entry}/cmdline", "rb") as f:
+                    if b"worker.py" in f.read():
+                        pids.append(int(entry))
+            except OSError:
+                pass
+    return pids

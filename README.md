@@ -95,7 +95,8 @@ uv run arena make-task --game arena_games_dev.alpha --out tasks/alpha \
 **`arena tournament job.json`**: a tournament described by a file, written one JSON line per
 match to `--out` (default `matches.jsonl`) as matches finish. Relative strategy paths resolve
 against the job file's directory. `panel`, `isolate` (default `true`), `limits` (fields of
-`arena.Limits`) and `workers` are optional; without `panel` it is all-vs-all.
+`arena.Limits`) and `workers` are optional; without `panel` it is all-vs-all. An entry with
+`"trusted": true` keeps the referee's uid under `limits.uid_base` (see Isolation).
 
 ```json
 {
@@ -104,9 +105,11 @@ against the job file's directory. `panel`, `isolate` (default `true`), `limits` 
     {"id": "team_a", "strategy": "a/strategy.py:Strategy"},
     {"id": "team_b", "strategy": "b/strategy.py:Strategy", "python": "/venvs/b/bin/python"}
   ],
-  "panel": [{"id": "spread", "strategy": "arena_games_dev.alpha.baselines:ProportionalSpread"}],
+  "panel": [
+    {"id": "spread", "strategy": "arena_games_dev.alpha.baselines:ProportionalSpread", "trusted": true}
+  ],
   "seeds": [0, 1, 2, 3, 4],
-  "limits": {"turn_timeout": 1.0},
+  "limits": {"turn_timeout": 1.0, "uid_base": 1001},
   "workers": 8
 }
 ```
@@ -140,8 +143,31 @@ worker process per match, and `play_match` / `round_robin` do so with `isolate=T
   is `"exception"`);
 - what a strategy prints goes to stderr and appears in the forfeit error, not in the protocol;
 - `Entrant(id, target, python=...)` runs a worker under another interpreter, e.g. a venv with
-  the strategy's own dependencies. The worker (`arena/worker.py`) is standard-library only.
+  the strategy's own dependencies, or a bare Python where no game is importable. The worker
+  (`arena/worker.py`) is standard-library only;
+- the referee reads a file target and sends its source over the pipe, so the worker never
+  needs read access to strategy files.
 
 Games must therefore return observations that are Python literals, and treat any action they
-cannot interpret (including `None`) as a no-op. File system, network and signals are not
-isolated: run tournaments in a container without network.
+cannot interpret (including `None`) as a no-op.
+
+**Separate users.** With `Limits(uid_base=1001)` (`--uid-base 1001` for `run` and `check`,
+`limits.uid_base` in a job file) every worker runs under a uid and gid of its own, without
+supplementary groups: `uid_base + 2 * slot + seat`, where `slot` is the index of the process
+playing the match (`--workers`), so no two live workers share a uid. A worker then cannot
+signal the referee or the other seat, read their `/proc` entries or write their files, and
+when the match ends every process of its uid is killed, also those it detached. A worker
+may start at most `Limits.max_processes` processes. `Entrant(..., trusted=True)` (a
+baseline) keeps the referee's uid. The referee must run as root, with `CAP_SETUID`,
+`CAP_SETGID` and `CAP_KILL`; without them every isolated match raises `PermissionError`.
+
+Network and file reads are not isolated by `arena`: run tournaments in a container without
+network, in which what workers must not read (strategy files, game source) is not readable
+by other users, and in which they have nowhere to write. `arena-eval`'s runner image does
+exactly that. The tests for separate users need root; run them in a container:
+
+```bash
+docker run --rm -v "$PWD":/src:ro -v "$(command -v uv)":/bin/uv:ro \
+  --cap-drop ALL --cap-add SETUID --cap-add SETGID --cap-add KILL python:3.13-slim \
+  sh -c 'cp -r /src /app && cd /app && rm -rf .venv && UV_LINK_MODE=copy uv run pytest'
+```

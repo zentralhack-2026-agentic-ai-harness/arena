@@ -60,12 +60,14 @@ class Entrant:
 
     `strategy` is a class or a target ("path/to/file.py:Name" or "package.module:Name").
     Isolated matches never load a target in the referee. `python` is the interpreter an
-    isolated worker runs under (default: the referee's); it requires a target.
+    isolated worker runs under (default: the referee's); it requires a target. A `trusted`
+    entrant (a baseline, say) keeps the referee's uid when `Limits.uid_base` is set.
     """
 
     id: str
     strategy: "type[Strategy] | str"
     python: str | None = None
+    trusted: bool = False
 
     @classmethod
     def of(cls, strategy: "Entrant | type[Strategy] | str") -> "Entrant":

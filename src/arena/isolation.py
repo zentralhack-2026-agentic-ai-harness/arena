@@ -5,9 +5,15 @@ through gc or stack frames, patch classes, hang the run or exit it. Isolated, ea
 runs in a fresh worker process (see worker.py) per match. It only ever sees observations and
 only ever returns a Python literal, and every turn is under a time limit.
 
-Not covered here, by design: file system and network access (run the tournament in a
-container with no network), and signals: workers of one match share a uid, so a strategy
-could kill the other worker or the referee. Separate uids per seat would close that.
+With `Limits.uid_base` (the referee must then run as root, with CAP_SETUID, CAP_SETGID and
+CAP_KILL), every untrusted worker also runs under a uid of its own: it cannot signal the
+referee or the other seat, read their /proc entries or write their files, and whatever it
+leaves running is killed with it. The referee reads file targets and sends the source over
+the pipe, so strategy files need not be readable by any worker.
+
+Not covered here, by design: network access and what a worker can read on the file system.
+Run the referee in a container with no network, and keep there what workers must not read
+(other entrants, game source) unreadable to other users (see the README).
 """
 
 import ast
@@ -47,6 +53,26 @@ class Limits:
     init_timeout: float = 10.0  # seconds for interpreter start, import and __init__
     memory_mb: int | None = 2048  # address space of the worker (RLIMIT_AS)
     max_reply_bytes: int = 1_000_000  # longest accepted repr(action)
+    # Untrusted workers run as uid (and gid) uid_base + 2 * slot + seat; None: as the referee.
+    uid_base: int | None = None
+    max_processes: int = 64  # per worker uid (RLIMIT_NPROC); only applies with uid_base
+
+
+# This process's index among the processes that play matches in parallel (see
+# arena.tournament.iter_matches), so that concurrent matches never share a worker uid.
+_slot = 0
+
+
+def set_slot(slot: int) -> None:
+    global _slot
+    _slot = slot
+
+
+def seat_user(limits: Limits, player_id: int) -> int | None:
+    """The uid an untrusted worker in seat `player_id` runs as, or None."""
+    if limits.uid_base is None:
+        return None
+    return limits.uid_base + 2 * _slot + player_id
 
 
 class StrategyFailure(Exception):
@@ -91,7 +117,11 @@ class InProcessPlayer:
 
 
 class IsolatedPlayer:
-    """Runs the strategy in a worker process. The process starts on construction."""
+    """Runs the strategy in a worker process. The process starts on construction.
+
+    With `user`, the worker runs as that uid and gid, without supplementary groups; this
+    process must then be root.
+    """
 
     def __init__(
         self,
@@ -100,17 +130,22 @@ class IsolatedPlayer:
         limits: Limits,
         python: str | None = None,
         sys_path: list[str] | None = None,
+        user: int | None = None,
     ) -> None:
         self.player_id = player_id
         self.limits = limits
+        self.user = user
+        self._source = _read_source(target, player_id)
         config = {
             "target": target,
             "player_id": player_id,
             "sys_path": sys_path or [],
             "memory_mb": limits.memory_mb,
+            "max_processes": limits.max_processes if user is not None else None,
         }
         self._stderr = tempfile.TemporaryFile()
         self._cwd = tempfile.TemporaryDirectory(prefix="arena-worker-")
+        os.chmod(self._cwd.name, 0o755)  # a worker of another uid may enter it, not write it
         self.proc = subprocess.Popen(
             [python or sys.executable, "-s", "-P", str(WORKER), json.dumps(config)],
             stdin=subprocess.PIPE,
@@ -119,6 +154,7 @@ class IsolatedPlayer:
             cwd=self._cwd.name,
             env=_ENV,
             process_group=0,  # so close() also kills anything the strategy spawned
+            **_as_user(user),
         )
         self._lines: queue.Queue[bytes | None] = queue.Queue()
         threading.Thread(target=self._read, daemon=True).start()
@@ -126,6 +162,7 @@ class IsolatedPlayer:
 
     def start(self) -> None:
         self._deadline = time.monotonic() + self.limits.init_timeout
+        self._write(repr(self._source))
         tag, _ = self._next()
         if tag != "R":
             self._protocol_error(f"expected ready, got {tag!r}")
@@ -137,11 +174,7 @@ class IsolatedPlayer:
         except Exception as e:  # the game's fault, not the strategy's
             raise ValueError(f"observation is not a Python literal: {text[:200]}") from e
         self._deadline = time.monotonic() + self.limits.turn_timeout
-        try:
-            self.proc.stdin.write(text.encode() + b"\n")
-            self.proc.stdin.flush()
-        except (BrokenPipeError, OSError):
-            self._fail("crash", f"worker exited (code {self.proc.poll()})")
+        self._write(text)
 
     def receive(self) -> Any:
         tag, payload = self._next()
@@ -158,10 +191,19 @@ class IsolatedPlayer:
         except (ProcessLookupError, PermissionError):
             pass
         self.proc.wait()
+        if self.user is not None:  # also what the strategy detached from its process group
+            _kill_user(self.user)
         self.proc.stdin.close()
         self.proc.stdout.close()
         self._stderr.close()
         self._cwd.cleanup()
+
+    def _write(self, line: str) -> None:
+        try:
+            self.proc.stdin.write(line.encode() + b"\n")
+            self.proc.stdin.flush()
+        except (BrokenPipeError, OSError):
+            self._fail("crash", f"worker exited (code {self.proc.poll()})")
 
     def _read(self) -> None:
         stdout = self.proc.stdout
@@ -206,3 +248,30 @@ class IsolatedPlayer:
         self._stderr.seek(max(0, self._stderr.tell() - n))
         tail = self._stderr.read().decode("utf-8", errors="replace")
         return f"--- worker output (tail) ---\n{tail}" if tail.strip() else ""
+
+
+def _read_source(target: str, player_id: int) -> str | None:
+    """The source of a file target, read here so that the worker needs no access to it."""
+    location = target.rpartition(":")[0]
+    if not location.endswith(".py"):
+        return None  # a module target: the worker imports it
+    try:
+        return Path(location).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        raise StrategyFailure(player_id, "exception", traceback.format_exc()) from None
+
+
+def _as_user(uid: int | None) -> dict:
+    """Popen arguments that run the child as `uid`, with the same gid and no other groups."""
+    return {} if uid is None else {"user": uid, "group": uid, "extra_groups": []}
+
+
+def _kill_user(uid: int) -> None:
+    """SIGKILL every process of `uid`: kill(-1) as that uid reaches exactly those."""
+    subprocess.run(
+        [sys.executable, "-I", "-S", "-c", "import os\ntry: os.kill(-1, 9)\nexcept OSError: pass"],
+        env=_ENV,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        **_as_user(uid),
+    )

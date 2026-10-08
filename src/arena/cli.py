@@ -47,6 +47,7 @@ def main(argv: list[str] | None = None) -> int:
     check.add_argument(
         "--turn-timeout", type=float, default=Limits.turn_timeout, help="seconds per turn"
     )
+    _add_uid_base_arg(check)
     check.add_argument("--json", type=Path, help="also write the full report here")
     check.set_defaults(handler=_check)
 
@@ -83,6 +84,15 @@ def _add_execution_args(parser: argparse.ArgumentParser) -> None:
         "--turn-timeout", type=float, default=Limits.turn_timeout, help="seconds per turn"
     )
     parser.add_argument("--workers", type=int, default=1, help="matches played in parallel")
+    _add_uid_base_arg(parser)
+
+
+def _add_uid_base_arg(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--uid-base",
+        type=int,
+        help="run every worker under a uid of its own, from this one up (needs root)",
+    )
 
 
 def _run(args) -> None:
@@ -97,7 +107,7 @@ def _run(args) -> None:
         seeds=list(range(args.seeds)),
         panel=panel,
         isolate=not args.in_process,
-        limits=Limits(turn_timeout=args.turn_timeout),
+        limits=Limits(turn_timeout=args.turn_timeout, uid_base=args.uid_base),
         workers=args.workers,
     )
     print(summarize(results))
@@ -109,7 +119,7 @@ def _check(args) -> int:
         load_game(args.game),
         args.strategy,
         seeds=list(range(args.seeds)),
-        limits=Limits(turn_timeout=args.turn_timeout),
+        limits=Limits(turn_timeout=args.turn_timeout, uid_base=args.uid_base),
         python=args.python,
     )
     if args.json:
@@ -144,7 +154,12 @@ def _tournament(args) -> None:
     base = args.job.resolve().parent
 
     def entrant(e: dict) -> Entrant:
-        return Entrant(e["id"], _resolve(e["strategy"], base), python=e.get("python"))
+        return Entrant(
+            e["id"],
+            _resolve(e["strategy"], base),
+            python=e.get("python"),
+            trusted=e.get("trusted", False),
+        )
 
     entrants = [entrant(e) for e in job["entrants"]]
     panel = [entrant(e) for e in job["panel"]] if job.get("panel") is not None else None

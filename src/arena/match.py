@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 
 from arena.core import Entrant, Game, MatchResult, Strategy
-from arena.isolation import InProcessPlayer, IsolatedPlayer, Limits, StrategyFailure
+from arena.isolation import InProcessPlayer, IsolatedPlayer, Limits, StrategyFailure, seat_user
 
 
 def play_match(
@@ -63,7 +63,10 @@ def _isolated_player(entrant: Entrant, player_id: int, limits: Limits) -> Isolat
         target = _target_of(entrant.strategy)
     # With the referee's own interpreter, module targets resolve exactly as they do here.
     sys_path = None if entrant.python else [str(Path(p).resolve()) for p in sys.path]
-    return IsolatedPlayer(target, player_id, limits, python=entrant.python, sys_path=sys_path)
+    user = None if entrant.trusted else seat_user(limits, player_id)
+    return IsolatedPlayer(
+        target, player_id, limits, python=entrant.python, sys_path=sys_path, user=user
+    )
 
 
 def _target_of(cls: type) -> str:

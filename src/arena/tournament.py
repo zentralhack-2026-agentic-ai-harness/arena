@@ -5,7 +5,7 @@ from functools import partial
 from itertools import permutations
 
 from arena.core import Entrant, Game, MatchResult, Strategy
-from arena.isolation import Limits
+from arena.isolation import Limits, set_slot
 from arena.match import play_match
 
 
@@ -35,6 +35,7 @@ def iter_matches(
 
     With `workers` > 1 the matches run in that many processes. The game class and the
     entrants' strategies must then be importable by name (module-level classes or targets).
+    Each process gets its own slot, and with `limits.uid_base` its own worker uids.
     """
     jobs = [(a, b, seed) for a, b in pairs for seed in seeds]
     play = partial(_play, game_cls, isolate=isolate, limits=limits)
@@ -42,7 +43,10 @@ def iter_matches(
         yield from map(play, jobs)
         return
     context = multiprocessing.get_context("spawn")  # no inherited threads or state
-    with ProcessPoolExecutor(max_workers=workers, mp_context=context) as pool:
+    slots = context.Value("i", 0)
+    with ProcessPoolExecutor(
+        max_workers=workers, mp_context=context, initializer=_take_slot, initargs=(slots,)
+    ) as pool:
         yield from pool.map(play, jobs)
 
 
@@ -74,6 +78,12 @@ def round_robin(
     return list(
         iter_matches(game_cls, pairs, seeds, isolate=isolate, limits=limits, workers=workers)
     )
+
+
+def _take_slot(slots) -> None:
+    with slots.get_lock():
+        set_slot(slots.value)
+        slots.value += 1
 
 
 def _play(
