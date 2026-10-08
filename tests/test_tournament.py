@@ -17,8 +17,9 @@ def test_summary_counts():
     results = round_robin(DummyGame, [High, Low], seeds=[0, 1, 2])
     table = summarize(results)
     rows = {line.split()[0]: line.split()[1:] for line in table.splitlines()[1:]}
-    assert rows["High"][:4] == ["6", "0", "0", "0"]  # W D L F
-    assert rows["Low"][:4] == ["0", "0", "6", "0"]
+    assert rows["High"] == ["6", "18.00", "3.00", "100.0%", "0"]  # matches revenue mean share F
+    assert rows["Low"] == ["6", "0.00", "0.00", "0.0%", "0"]
+    assert table.splitlines()[1].startswith("High")  # sorted by revenue
 
 
 def test_same_class_under_different_ids():
