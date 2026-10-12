@@ -90,7 +90,7 @@ class MatchResult:
     forfeit: int | None = None  # first seat whose strategy failed
     forfeit_reason: str | None = None  # "exception", "timeout", "crash" or "protocol"
     error: str | None = None
-    # Per seat: the turn at which its strategy failed (its score is frozen there), or None.
+    # Per seat: the turn at which its strategy failed (it plays None from there on), or None.
     forfeit_turns: list[int | None] | None = None
 
     @property

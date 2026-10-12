@@ -37,7 +37,7 @@ class CrashAtTurn2(High):
         return super().act(obs)
 
 
-def test_forfeit_freezes_the_score_and_the_others_play_on():
+def test_forfeit_plays_none_and_the_others_play_on():
     r = play_match(DummyGame, [CrashAtTurn2, Low], seed=0)
     assert (r.forfeit, r.forfeit_turns) == (0, [2, None])
     assert r.turns == 3
@@ -45,12 +45,29 @@ def test_forfeit_freezes_the_score_and_the_others_play_on():
     assert r.winner == 1
 
 
-def test_match_stops_when_every_seat_has_failed():
-    r = play_match(DummyGame, [Crash, CrashAtTurn2], seed=0)
+class IncomeGame(DummyGame):
+    """DummyGame in which every seat also earns 1 point per turn, whatever it plays."""
+
+    turns = 5
+
+    def step(self, actions: list[dict]) -> None:
+        super().step(actions)
+        self._scores = [s + 1 for s in self._scores]
+
+
+def test_a_failed_seat_keeps_scoring():
+    r = play_match(IncomeGame, [CrashAtTurn2, Low], seed=0)
+    assert r.forfeit_turns == [2, None]
+    # seat 0: wins turns 0-1, then plays None and loses turns 2-4, plus 1 per turn throughout
+    assert r.scores == [7.0, 8.0]
+
+
+def test_match_plays_to_the_end_when_every_seat_has_failed():
+    r = play_match(IncomeGame, [Crash, CrashAtTurn2], seed=0)
     assert r.forfeit == 0  # the first to fail
     assert r.forfeit_turns == [0, 2]
-    assert r.turns == 3  # turn 2 is still played (by no one), then the match stops
-    assert r.scores == [0.0, 2.0]
+    assert r.turns == 5  # turns 2-4 are played by no one
+    assert r.scores == [5.0, 7.0]
 
 
 def test_seed_reaches_game():

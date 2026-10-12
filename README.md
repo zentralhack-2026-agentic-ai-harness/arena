@@ -33,8 +33,9 @@ Everything is in [`src/arena/core.py`](src/arena/core.py):
 Observations and actions are Python literals (dicts, lists, tuples, numbers, strings, bools,
 `None`). Their contents are defined by each game's `spec.md`.
 
-If a strategy raises an exception, it forfeits the match: its score is frozen at that turn,
-its seat plays `None` (a no-op) from then on, and the other seats play, and score, to the end.
+If a strategy raises an exception, it forfeits the match: its seat plays `None` (a no-op) from
+then on. The match still plays to the end, even if every seat has failed, and a failed seat keeps
+scoring whatever the game gives it (what its units still earn or cost).
 `MatchResult.forfeit` is the first seat that failed, `forfeit_turns` the turn per seat (or
 `None`), and `winner` is the highest score among the seats that did not forfeit (`None` for a
 tie at the top): a forfeit counts as a loss whatever the scores.

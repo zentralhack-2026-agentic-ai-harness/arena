@@ -21,9 +21,9 @@ def play_match(
     arena.isolation); without it, strategies share this interpreter and `limits` is ignored.
 
     A strategy that fails (raises; and when isolated: times out, crashes or breaks the
-    protocol) forfeits: its score is frozen at that moment, and for the rest of the match its
-    seat plays None (a no-op), so that the other seats still play, and score, to the end.
-    The match stops early only once every seat has failed.
+    protocol) forfeits: for the rest of the match its seat plays None, which every game treats
+    as a no-op. The match always plays to the end, even once every seat has failed, and every
+    seat keeps scoring whatever the game gives it: what its units still earn or cost.
     `forfeit` is the first seat that failed. Errors raised by the game itself are not caught:
     those are bugs in the game.
     """
@@ -36,11 +36,9 @@ def play_match(
     result = MatchResult(
         players=[e.id for e in entrants], seed=seed, scores=[], turns=0, forfeit_turns=[None] * n
     )
-    frozen: dict[int, float] = {}  # seat -> its score when it failed
 
     def fail(failure: StrategyFailure) -> None:
         seat = failure.player_id
-        frozen[seat] = game.scores()[seat]
         result.forfeit_turns[seat] = result.turns
         if result.forfeit is None:
             result.forfeit = seat
@@ -64,7 +62,7 @@ def play_match(
                 fail(failure)
         for player in players:
             _guard(player, fail, lambda p: p.start())
-        while not game.is_over() and len(frozen) < n:
+        while not game.is_over():
             for player_id, player in enumerate(players):
                 _guard(player, fail, lambda p, i=player_id: p.send(game.observe(i)))
             actions = [_guard(player, fail, lambda p: p.receive()) for player in players]
@@ -75,7 +73,7 @@ def play_match(
             if player is not None:
                 player.close()
 
-    result.scores = [frozen.get(seat, score) for seat, score in enumerate(game.scores())]
+    result.scores = game.scores()
     return result
 
 
