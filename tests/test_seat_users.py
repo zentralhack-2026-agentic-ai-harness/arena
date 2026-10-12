@@ -22,6 +22,8 @@ SEATS = LIMITS.max_seats
 class ThreeSeats(DummyGame):
     """DummyGame with a third seat that never scores."""
 
+    n_players = 3
+
     def scores(self):
         return [*super().scores(), 0.0]
 

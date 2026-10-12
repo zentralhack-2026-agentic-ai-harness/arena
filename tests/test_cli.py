@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from arena.cli import main
 
 HERE = Path(__file__).resolve().parent
@@ -120,3 +122,24 @@ def test_tournament_job(tmp_path, capsys):
     assert len(lines) == 1 * 1 * 2 * 2
     assert all(m["forfeit"] is None for m in lines)
     assert {m["players"][m["winner"]] for m in lines} == {"team_a"}
+
+
+def test_check_plays_every_seat_of_a_three_seat_game(tmp_path):
+    report = tmp_path / "report.json"
+    game = "tests.dummy_game:ThreeWayGame"
+    assert main(["check", "tests.dummy_game:High", "--game", game, "--json", str(report)]) == 0
+    matches = json.loads(report.read_text())["matches"]
+    assert [m["players"].index("candidate") for m in matches] == [0, 1, 2]
+    assert all(m["players"].count("idle") == 2 for m in matches)
+
+
+def test_run_three_seat_game(capsys):
+    game = "tests.dummy_game:ThreeWayGame"
+    strategies = ["tests.dummy_game:High", "tests.dummy_game:Mid"]
+    with pytest.raises(SystemExit, match="3 seats"):
+        main(["run", "--game", game, "--strategies", *strategies, "--in-process"])
+    main(["run", "--game", game, "--strategies", *strategies, "tests.dummy_game:Low",
+          "--seeds", "1", "--in-process"])  # fmt: skip
+    rows = capsys.readouterr().out.splitlines()[1:]
+    assert sorted(row.split()[:2] for row in rows) == [["High", "3"], ["Low", "3"], ["Mid", "3"]]
+    assert rows[0].startswith("High")  # the only one that ever scores

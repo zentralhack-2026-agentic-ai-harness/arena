@@ -1,7 +1,9 @@
 import json
 
+import pytest
+
 from arena import Entrant, play_match
-from tests.dummy_game import Crash, DummyGame, High, Low
+from tests.dummy_game import Crash, DummyGame, High, Low, Mid, ThreeWayGame
 
 
 def test_normal_match():
@@ -74,3 +76,35 @@ def test_forfeit_reason_and_to_dict():
     assert d["forfeit_reason"] == "exception"
     assert d["winner"] == 0
     assert json.loads(json.dumps(d)) == d
+
+
+def test_one_entrant_per_seat():
+    with pytest.raises(ValueError, match="3 seats, got 2 entrants"):
+        play_match(ThreeWayGame, [High, Low], seed=0)
+    with pytest.raises(ValueError, match="2 seats, got 3 entrants"):
+        play_match(DummyGame, [High, Low, Low], seed=0)
+
+
+def test_three_seat_match():
+    r = play_match(ThreeWayGame, [Low, High, Mid], seed=0)
+    assert r.scores == [0.0, 3.0, 0.0]
+    assert r.winner == 1
+
+
+def test_three_seat_tie_at_the_top_has_no_winner():
+    r = play_match(ThreeWayGame, [High, High, Low], seed=0)
+    assert r.scores == [0.0, 0.0, 0.0]
+    assert r.winner is None
+
+
+def test_three_seat_forfeit_the_others_play_on():
+    r = play_match(ThreeWayGame, [CrashAtTurn2, Mid, Low], seed=0)
+    assert r.forfeit_turns == [2, None, None]
+    assert r.turns == 3
+    assert r.scores == [2.0, 1.0, 0.0]  # Mid wins turn 2 once High's seat is a no-op
+    assert r.winner == 1  # the forfeited seat cannot win, whatever its score
+
+
+def test_no_winner_when_every_seat_forfeits():
+    r = play_match(DummyGame, [Crash, CrashAtTurn2], seed=0)
+    assert r.winner is None

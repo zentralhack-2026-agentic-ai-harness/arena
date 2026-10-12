@@ -40,6 +40,24 @@ class DummyGame(Game):
         return n if isinstance(n, int) and 0 <= n <= 9 else 0
 
 
+class ThreeWayGame(DummyGame):
+    """DummyGame for three seats: each turn, the single highest number scores 1 point (a tie
+    at the top scores nothing)."""
+
+    n_players = 3
+
+    def __init__(self, seed: int) -> None:
+        super().__init__(seed)
+        self._scores = [0.0, 0.0, 0.0]
+
+    def step(self, actions: list[dict]) -> None:
+        picks = [self._pick(a) for a in actions]
+        best = max(picks)
+        if picks.count(best) == 1:
+            self._scores[picks.index(best)] += 1
+        self.turn += 1
+
+
 class High(Strategy):
     def act(self, obs: dict) -> dict:
         return {"n": 9}
@@ -48,6 +66,11 @@ class High(Strategy):
 class Low(Strategy):
     def act(self, obs: dict) -> dict:
         return {"n": 1}
+
+
+class Mid(Strategy):
+    def act(self, obs: dict) -> dict:
+        return {"n": 5}
 
 
 class Crash(Strategy):

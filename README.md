@@ -25,16 +25,19 @@ Everything is in [`src/arena/core.py`](src/arena/core.py):
 
 - **`Strategy`**: gets its `player_id` in `__init__` and implements `act(obs)`. A fresh instance
   is created for every match. Subclassing is optional: any class with that shape works.
-- **`Game`**: `observe(player_id)`, `step(actions)`, `is_over()`, `scores()`. Two players,
-  simultaneous moves. Illegal actions, including values the game cannot interpret, are no-ops.
+- **`Game`**: `observe(player_id)`, `step(actions)`, `is_over()`, `scores()`. Simultaneous
+  moves. The class attribute `n_players` (default 2) is the number of seats; a match takes
+  exactly one entrant per seat. Illegal actions, including values the game cannot interpret,
+  are no-ops.
 
 Observations and actions are Python literals (dicts, lists, tuples, numbers, strings, bools,
 `None`). Their contents are defined by each game's `spec.md`.
 
 If a strategy raises an exception, it forfeits the match: its score is frozen at that turn,
-its seat plays `None` (a no-op) from then on, and the other seat plays, and scores, to the end.
+its seat plays `None` (a no-op) from then on, and the other seats play, and score, to the end.
 `MatchResult.forfeit` is the first seat that failed, `forfeit_turns` the turn per seat (or
-`None`), and `winner` counts a forfeit as a loss whatever the scores.
+`None`), and `winner` is the highest score among the seats that did not forfeit (`None` for a
+tie at the top): a forfeit counts as a loss whatever the scores.
 
 Matches and tournaments take **entrants**: `Entrant(id, strategy)`, where `strategy` is a class
 or a target string (see below). Results are reported by id, because submissions from different
@@ -67,8 +70,16 @@ cd arena-games-dev
 uv run --with-editable ../arena arena run --game arena_games_dev.alpha:AlphaGame ...
 ```
 
-Every entrant plays every other one in both seats, once per seed. With `--panel X Y ...` the
-strategies play only the panel members instead (and the panel members not each other).
+The tournament is played at **tables** of `n_players` (see `arena.tournament.tables`):
+
+- Every set of `n_players` distinct entrants is a table, so for two seats every entrant plays
+  every other one. With `--panel X Y ...` every strategy sits instead with every set of
+  `n_players - 1` panel members (for two seats: every panel member), and neither strategies nor
+  panel members sit with each other.
+- No table seats the same entrant twice.
+- Every table is played in its `n_players` cyclic seat rotations, once per seed, so every
+  member plays every seat. For two seats, that is both seats of every pairing.
+
 `--workers N` plays N matches in parallel; results are the same, in the same order.
 
 A game is referenced as a class (`package.module:Name`) or as a **game package**: a module that
@@ -79,8 +90,8 @@ must be unique).
 
 ## Other commands
 
-**`arena check`**: conformance. Plays the strategy, isolated, against `arena.strategies:Idle`
-(always a no-op) in both seats. Passes if it never forfeits, which says nothing about how well
+**`arena check`**: conformance. Plays the strategy, isolated, in every seat of the game, with
+`arena.strategies:Idle` (always a no-op) in all other seats. Passes if it never forfeits, which says nothing about how well
 it plays. Exit code 0 or 1; `--json report.json` writes the full match records.
 
 ```bash

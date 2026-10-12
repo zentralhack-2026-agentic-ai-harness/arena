@@ -13,7 +13,8 @@ def play_match(
     isolate: bool = False,
     limits: Limits | None = None,
 ) -> MatchResult:
-    """Play one match. Seat index = player_id.
+    """Play one match. Seat index = player_id; there must be one entrant per seat of the game
+    (`game_cls.n_players`).
 
     Entrants may be given as bare strategy classes or targets; their class name is then the id.
     With `isolate`, every strategy runs in its own worker process under `limits` (see
@@ -22,12 +23,16 @@ def play_match(
     A strategy that fails (raises; and when isolated: times out, crashes or breaks the
     protocol) forfeits: its score is frozen at that moment, and for the rest of the match its
     seat plays None (a no-op), so that the other seats still play, and score, to the end.
+    The match stops early only once every seat has failed.
     `forfeit` is the first seat that failed. Errors raised by the game itself are not caught:
     those are bugs in the game.
     """
     entrants = [Entrant.of(e) for e in entrants]
-    game = game_cls(seed)
     n = len(entrants)
+    seats = getattr(game_cls, "n_players", 2)
+    if n != seats:
+        raise ValueError(f"{game_cls.__name__} has {seats} seats, got {n} entrants")
+    game = game_cls(seed)
     result = MatchResult(
         players=[e.id for e in entrants], seed=seed, scores=[], turns=0, forfeit_turns=[None] * n
     )

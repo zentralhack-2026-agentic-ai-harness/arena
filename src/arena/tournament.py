@@ -2,42 +2,54 @@ import multiprocessing
 from collections.abc import Iterator
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial
-from itertools import permutations
+from itertools import combinations
 
 from arena.core import Entrant, Game, MatchResult, Strategy
 from arena.isolation import Limits, set_slot
 from arena.match import play_match
 
 
-def pairings(
-    entrants: list[Entrant], panel: list[Entrant] | None = None
-) -> list[tuple[Entrant, Entrant]]:
-    """Ordered (seat 0, seat 1) pairs: both seats of every pairing.
+def tables(
+    entrants: list[Entrant], n_players: int = 2, panel: list[Entrant] | None = None
+) -> list[tuple[Entrant, ...]]:
+    """The seatings of a tournament: every table, in every seat rotation (index = seat).
 
-    Without a panel, every entrant meets every other one. With a panel, every entrant meets
-    every panel member, and neither entrants nor panel members meet each other.
+    Without a panel, every set of `n_players` distinct entrants is a table. With a panel,
+    every entrant sits with every set of `n_players - 1` panel members, and no table seats two
+    entrants. Either way no table seats the same entrant twice.
+
+    Each table is played in its `n_players` cyclic rotations, so every member plays every seat
+    once per table. For two seats these are both seats of every pairing.
     """
+    if n_players < 1:
+        raise ValueError(f"a table needs at least one seat, got n_players={n_players}")
     if panel is None:
-        return list(permutations(entrants, 2))
-    return [pair for e in entrants for p in panel for pair in ((e, p), (p, e))]
+        if len(entrants) < n_players:
+            raise ValueError(f"{n_players} seats need at least {n_players} entrants")
+        groups = [tuple(g) for g in combinations(entrants, n_players)]
+    else:
+        if len(panel) < n_players - 1:
+            raise ValueError(f"{n_players} seats need a panel of at least {n_players - 1}")
+        groups = [(e, *others) for e in entrants for others in combinations(panel, n_players - 1)]
+    return [g[r:] + g[:r] for g in groups for r in range(n_players)]
 
 
 def iter_matches(
     game_cls: type[Game],
-    pairs: list[tuple[Entrant, Entrant]],
+    seatings: list[tuple[Entrant, ...]],
     seeds: list[int],
     *,
     isolate: bool = False,
     limits: Limits | None = None,
     workers: int = 1,
 ) -> Iterator[MatchResult]:
-    """Play every pair once per seed and yield the results in a fixed order.
+    """Play every seating (see `tables`) once per seed and yield the results in a fixed order.
 
     With `workers` > 1 the matches run in that many processes. The game class and the
     entrants' strategies must then be importable by name (module-level classes or targets).
     Each process gets its own slot, and with `limits.uid_base` its own worker uids.
     """
-    jobs = [(a, b, seed) for a, b in pairs for seed in seeds]
+    jobs = [(seating, seed) for seating in seatings for seed in seeds]
     play = partial(_play, game_cls, isolate=isolate, limits=limits)
     if workers <= 1:
         yield from map(play, jobs)
@@ -60,8 +72,9 @@ def round_robin(
     limits: Limits | None = None,
     workers: int = 1,
 ) -> list[MatchResult]:
-    """Every entrant plays every other one (or, with `panel`, every panel member) in both
-    seats, once per seed.
+    """Every table of `game_cls.n_players` entrants (or, with `panel`, of one entrant and
+    panel members) plays every seat rotation, once per seed; see `tables`. For two seats:
+    every entrant plays every other one (or every panel member) in both seats.
 
     Entrants may be given as bare strategy classes or targets; their class name is then the
     id. Ids must be unique across entrants and panel. The keyword arguments are passed on to
@@ -74,9 +87,9 @@ def round_robin(
     if duplicates:
         raise ValueError(f"entrant ids must be unique, got duplicates: {duplicates}")
 
-    pairs = pairings(entrants, panel)
+    seatings = tables(entrants, getattr(game_cls, "n_players", 2), panel)
     return list(
-        iter_matches(game_cls, pairs, seeds, isolate=isolate, limits=limits, workers=workers)
+        iter_matches(game_cls, seatings, seeds, isolate=isolate, limits=limits, workers=workers)
     )
 
 
@@ -88,13 +101,13 @@ def _take_slot(slots) -> None:
 
 def _play(
     game_cls: type[Game],
-    job: tuple[Entrant, Entrant, int],
+    job: tuple[tuple[Entrant, ...], int],
     *,
     isolate: bool,
     limits: Limits | None,
 ) -> MatchResult:
-    a, b, seed = job
-    return play_match(game_cls, [a, b], seed, isolate=isolate, limits=limits)
+    seating, seed = job
+    return play_match(game_cls, list(seating), seed, isolate=isolate, limits=limits)
 
 
 def summarize(results: list[MatchResult]) -> str:

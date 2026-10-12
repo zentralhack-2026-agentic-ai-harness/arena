@@ -21,7 +21,9 @@ class Strategy(ABC):
 
 
 class Game(ABC):
-    """A game with simultaneous moves."""
+    """A game with simultaneous moves and a fixed number of seats."""
+
+    n_players: int = 2  # seats per match; player ids are 0 .. n_players - 1
 
     def __init__(self, seed: int | None = None) -> None:
         self.seed = seed
@@ -93,12 +95,15 @@ class MatchResult:
 
     @property
     def winner(self) -> int | None:
-        """Winning seat, or None for a draw. A forfeit loses regardless of score."""
-        if self.forfeit is not None:
-            return 1 - self.forfeit
-        if self.scores[0] == self.scores[1]:
+        """Winning seat: the highest score among the seats that did not forfeit (a forfeit
+        loses regardless of score). None for a tie at the top, or if every seat forfeited."""
+        failed = self.forfeit_turns or [None] * len(self.scores)
+        alive = [s for s in range(len(self.scores)) if failed[s] is None and s != self.forfeit]
+        if not alive:
             return None
-        return 0 if self.scores[0] > self.scores[1] else 1
+        best = max(self.scores[s] for s in alive)
+        top = [s for s in alive if self.scores[s] == best]
+        return top[0] if len(top) == 1 else None
 
     def to_dict(self) -> dict:
         """JSON-serialisable form, including the derived winner."""

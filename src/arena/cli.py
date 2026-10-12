@@ -9,7 +9,7 @@ from arena.core import Entrant, MatchResult
 from arena.isolation import Limits
 from arena.loading import load_game, load_game_package
 from arena.task import make_task
-from arena.tournament import iter_matches, pairings, round_robin, summarize
+from arena.tournament import iter_matches, round_robin, summarize, tables
 
 GAME_HELP = "game package (e.g. arena_games_dev.alpha) or class (e.g. ...alpha:AlphaGame)"
 
@@ -18,7 +18,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="arena")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    run = sub.add_parser("run", help="run a round-robin tournament")
+    run = sub.add_parser("run", help="run a round-robin tournament (every table, every seat)")
     run.add_argument("--game", required=True, help=GAME_HELP)
     run.add_argument(
         "--strategies",
@@ -35,7 +35,7 @@ def main(argv: list[str] | None = None) -> int:
         nargs="+",
         help="[id=]targets the strategies play instead of each other",
     )
-    run.add_argument("--seeds", type=int, default=10, help="number of seeds per pairing")
+    run.add_argument("--seeds", type=int, default=10, help="number of seeds per seating")
     _add_execution_args(run)
     run.set_defaults(handler=_run)
 
@@ -101,13 +101,17 @@ def _add_uid_base_arg(parser: argparse.ArgumentParser) -> None:
 
 
 def _run(args) -> None:
+    game_cls = load_game(args.game)
+    n = getattr(game_cls, "n_players", 2)
     entrants = [_entrant(s) for s in args.strategies]
     panel = None if args.panel is None else [_entrant(s) for s in args.panel]
-    if panel is None and len(entrants) < 2:
-        sys.exit("arena run: --strategies needs at least two entries (or use --panel)")
+    if panel is None and len(entrants) < n:
+        sys.exit(f"arena run: {n} seats: --strategies needs at least {n} entries (or use --panel)")
+    if panel is not None and len(panel) < n - 1:
+        sys.exit(f"arena run: {n} seats: --panel needs at least {n - 1} entries")
 
     results = round_robin(
-        load_game(args.game),
+        game_cls,
         entrants,
         seeds=list(range(args.seeds)),
         panel=panel,
@@ -173,11 +177,12 @@ def _tournament(args) -> None:
     if len(set(ids)) != len(ids):
         sys.exit("arena tournament: entrant and panel ids must be unique")
 
+    game_cls = load_game(job["game"])
     results = []
     with args.out.open("w") as out:
         for result in iter_matches(
-            load_game(job["game"]),
-            pairings(entrants, panel),
+            game_cls,
+            tables(entrants, getattr(game_cls, "n_players", 2), panel),
             job["seeds"],
             isolate=job.get("isolate", True),
             limits=Limits(**job.get("limits", {})),
