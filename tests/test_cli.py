@@ -122,6 +122,39 @@ def test_tournament_job(tmp_path, capsys):
     assert len(lines) == 1 * 1 * 2 * 2
     assert all(m["forfeit"] is None for m in lines)
     assert {m["players"][m["winner"]] for m in lines} == {"team_a"}
+    assert all(isinstance(m["t"], float) for m in lines)
+    assert [m["t"] for m in lines] == sorted(m["t"] for m in lines)
+
+
+def test_tournament_job_with_explicit_tables(tmp_path):
+    job = {
+        "game": "tests.dummy_game",
+        "entrants": [
+            {"id": i, "strategy": "tests.dummy_game:Low", "trusted": True}
+            for i in ("a1", "a2", "b1")
+        ],
+        "tables": [["a1", "b1"], ["a2", "b1"]],  # a1 and a2 (one team) never meet
+        "seeds": [0, 1],
+        "isolate": False,
+    }
+    (tmp_path / "job.json").write_text(json.dumps(job))
+    out = tmp_path / "matches.jsonl"
+    main(["tournament", str(tmp_path / "job.json"), "--out", str(out)])
+    seatings = [tuple(json.loads(line)["players"]) for line in out.read_text().splitlines()]
+    assert len(seatings) == 2 * 2 * 2
+    assert set(seatings) == {("a1", "b1"), ("b1", "a1"), ("a2", "b1"), ("b1", "a2")}
+
+
+def test_tournament_job_rejects_unknown_table_ids(tmp_path):
+    job = {
+        "game": "tests.dummy_game",
+        "entrants": [{"id": "a", "strategy": "tests.dummy_game:Low"}],
+        "tables": [["a", "nobody"]],
+        "seeds": [0],
+    }
+    (tmp_path / "job.json").write_text(json.dumps(job))
+    with pytest.raises(SystemExit, match="unknown ids"):
+        main(["tournament", str(tmp_path / "job.json"), "--out", str(tmp_path / "m.jsonl")])
 
 
 def test_check_plays_every_seat_of_a_three_seat_game(tmp_path):

@@ -81,7 +81,35 @@ The tournament is played at **tables** of `n_players` (see `arena.tournament.tab
 - Every table is played in its `n_players` cyclic seat rotations, once per seed, so every
   member plays every seat. For two seats, that is both seats of every pairing.
 
+Matches are played in **rounds**, one per seed (see `arena.tournament.schedule`): a round plays
+every table in each of its rotations, the rotations of a table next to each other, the tables in
+an order shuffled by the round's seed. Any prefix of the results is therefore a sequence of
+complete rounds plus part of one, which keeps a running rating fair while a tournament is still
+going.
+
 `--workers N` plays N matches in parallel; results are the same, in the same order.
+
+**`arena tournament job.json --out matches.jsonl`** plays a tournament described by a file:
+
+```json
+{
+  "game": "arena_games_dev.beta",
+  "entrants": [{"id": "team_a.rep0", "strategy": "entrants/team_a.rep0.py:Strategy",
+                "python": "/usr/bin/python3", "trusted": false}],
+  "panel": null,
+  "tables": [["team_a.rep0", "team_b.rep0"]],
+  "seeds": [0, 1, 2],
+  "isolate": true,
+  "limits": {"turn_timeout": 1.0, "uid_base": 20000},
+  "workers": 4
+}
+```
+
+Strategy paths resolve against the job file's directory. `tables` is optional: lists of
+`n_players` ids, each played in all its seat rotations, instead of the tables `tables()` would
+make (e.g. to keep the runs of one team apart). Every line of the output is one match
+(`MatchResult.to_dict()`) plus `t`, the seconds since the tournament started when its result
+came in.
 
 A game is referenced as a class (`package.module:Name`) or as a **game package**: a module that
 exports `GAME` (the class), `BASELINES` (strategy classes) and `SPEC` (path to `spec.md`), e.g.

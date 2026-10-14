@@ -4,7 +4,7 @@ from itertools import combinations, permutations
 import pytest
 
 from arena import Entrant, round_robin, summarize
-from arena.tournament import tables
+from arena.tournament import schedule, tables
 from tests.dummy_game import Crash, DummyGame, High, Low, Mid, ThreeWayGame
 
 
@@ -102,4 +102,20 @@ def test_parallel_matches_same_results_in_same_order():
 
 def test_parallel_isolated():
     results = round_robin(DummyGame, [High, Low], seeds=[0, 1], isolate=True, workers=2)
-    assert [r.winner for r in results] == [0, 0, 1, 1]
+    assert [r.winner for r in results] == [0, 1, 0, 1]  # rounds: both seats of seed 0 first
+
+
+def test_schedule_plays_rounds():
+    field = [Entrant(i, Low) for i in "abcd"]
+    seatings = tables(field, 2)
+    jobs = schedule(seatings, [5, 6, 7])
+    assert len(jobs) == len(seatings) * 3
+    assert [seed for _, seed in jobs] == [5] * 12 + [6] * 12 + [7] * 12
+    for k in range(0, len(jobs), 2):  # both seats of a pairing next to each other
+        (x, _), (y, _) = jobs[k], jobs[k + 1]
+        assert x == y[::-1]
+    for seed in (5, 6, 7):  # every round plays every seating once
+        assert sorted(map(str, (s for s, t in jobs if t == seed))) == sorted(map(str, seatings))
+    rounds = [[s for s, t in jobs if t == seed][::2] for seed in (5, 6, 7)]
+    assert len({tuple(map(str, r)) for r in rounds}) > 1  # pairing order shuffled per round
+    assert schedule(seatings, [5, 6, 7]) == jobs  # deterministic

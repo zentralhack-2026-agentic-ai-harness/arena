@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 from arena.conformance import check_strategy
@@ -9,7 +10,7 @@ from arena.core import Entrant, MatchResult
 from arena.isolation import Limits
 from arena.loading import load_game, load_game_package
 from arena.task import make_task
-from arena.tournament import iter_matches, round_robin, summarize, tables
+from arena.tournament import iter_matches, rotations, round_robin, summarize, tables
 
 GAME_HELP = "game package (e.g. arena_games_dev.alpha) or class (e.g. ...alpha:AlphaGame)"
 
@@ -178,21 +179,45 @@ def _tournament(args) -> None:
         sys.exit("arena tournament: entrant and panel ids must be unique")
 
     game_cls = load_game(job["game"])
+    n_players = getattr(game_cls, "n_players", 2)
+    if job.get("tables") is not None:
+        seatings = _job_tables(job["tables"], entrants, panel, n_players)
+    else:
+        seatings = tables(entrants, n_players, panel)
     results = []
+    start = time.monotonic()
     with args.out.open("w") as out:
         for result in iter_matches(
             game_cls,
-            tables(entrants, getattr(game_cls, "n_players", 2), panel),
+            seatings,
             job["seeds"],
             isolate=job.get("isolate", True),
             limits=Limits(**job.get("limits", {})),
             workers=job.get("workers", 1),
         ):
-            out.write(json.dumps(result.to_dict()) + "\n")
+            record = result.to_dict() | {"t": round(time.monotonic() - start, 3)}
+            out.write(json.dumps(record) + "\n")
             out.flush()
             results.append(result)
     print(summarize(results))
     print(f"\n{len(results)} matches written to {args.out}")
+
+
+def _job_tables(
+    groups: list[list[str]], entrants: list[Entrant], panel: list[Entrant] | None, n_players: int
+) -> list[tuple[Entrant, ...]]:
+    """The seatings of a job's explicit `tables`: lists of entrant (or panel) ids, each played in
+    all its seat rotations."""
+    by_id = {e.id: e for e in entrants + (panel or [])}
+    seatings = []
+    for group in groups:
+        if len(group) != n_players or len(set(group)) != n_players:
+            sys.exit(f"arena tournament: a table needs {n_players} distinct ids, got {group}")
+        unknown = [i for i in group if i not in by_id]
+        if unknown:
+            sys.exit(f"arena tournament: unknown ids in a table: {unknown}")
+        seatings += rotations(tuple(by_id[i] for i in group))
+    return seatings
 
 
 def _entrant(arg: str) -> Entrant:

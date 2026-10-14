@@ -1,4 +1,5 @@
 import multiprocessing
+import random
 from collections.abc import Iterator
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial
@@ -31,7 +32,32 @@ def tables(
         if len(panel) < n_players - 1:
             raise ValueError(f"{n_players} seats need a panel of at least {n_players - 1}")
         groups = [(e, *others) for e in entrants for others in combinations(panel, n_players - 1)]
-    return [g[r:] + g[:r] for g in groups for r in range(n_players)]
+    return [s for g in groups for s in rotations(g)]
+
+
+def rotations(table: tuple[Entrant, ...]) -> list[tuple[Entrant, ...]]:
+    """The cyclic seat rotations of a table, starting with the table itself."""
+    return [table[r:] + table[:r] for r in range(len(table))]
+
+
+def schedule(seatings: list[tuple[Entrant, ...]], seeds: list[int]) -> list[tuple]:
+    """The matches to play, as (seating, seed), in rounds: one round per seed, in the order of
+    `seeds`. A round plays every table once in each of its rotations; the tables of a round come
+    in an order shuffled by its seed, the rotations of a table next to each other.
+
+    So any prefix of the matches is a sequence of complete rounds plus part of one, and every
+    table has played every seat equally often at the end of each round. The order is fixed by
+    `seatings` and `seeds` alone.
+    """
+    groups: dict[frozenset, list] = {}
+    for seating in seatings:
+        groups.setdefault(frozenset(e.id for e in seating), []).append(seating)
+    jobs = []
+    for seed in seeds:
+        order = list(groups.values())
+        random.Random(seed).shuffle(order)
+        jobs += [(seating, seed) for group in order for seating in group]
+    return jobs
 
 
 def iter_matches(
@@ -43,13 +69,14 @@ def iter_matches(
     limits: Limits | None = None,
     workers: int = 1,
 ) -> Iterator[MatchResult]:
-    """Play every seating (see `tables`) once per seed and yield the results in a fixed order.
+    """Play every seating (see `tables`) once per seed and yield the results in a fixed order:
+    in rounds, one per seed (see `schedule`).
 
     With `workers` > 1 the matches run in that many processes. The game class and the
     entrants' strategies must then be importable by name (module-level classes or targets).
     Each process gets its own slot, and with `limits.uid_base` its own worker uids.
     """
-    jobs = [(seating, seed) for seating in seatings for seed in seeds]
+    jobs = schedule(seatings, seeds)
     play = partial(_play, game_cls, isolate=isolate, limits=limits)
     if workers <= 1:
         yield from map(play, jobs)
