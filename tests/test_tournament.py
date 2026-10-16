@@ -20,9 +20,24 @@ def test_summary_counts():
     results = round_robin(DummyGame, [High, Low], seeds=[0, 1, 2])
     table = summarize(results)
     rows = {line.split()[0]: line.split()[1:] for line in table.splitlines()[1:]}
-    assert rows["High"] == ["6", "18.00", "3.00", "100.0%", "0"]  # matches revenue mean share F
-    assert rows["Low"] == ["6", "0.00", "0.00", "0.0%", "0"]
-    assert table.splitlines()[1].startswith("High")  # sorted by revenue
+    # matches wins draws margin revenue mean share F
+    assert rows["High"] == ["6", "6", "0", "3.00", "18.00", "3.00", "100.0%", "0"]
+    assert rows["Low"] == ["6", "0", "0", "-3.00", "0.00", "0.00", "0.0%", "0"]
+    assert table.splitlines()[1].startswith("High")  # sorted by wins
+
+
+def test_summary_draws():
+    results = round_robin(DummyGame, [Entrant("a", High), Entrant("b", High)], seeds=[0])
+    rows = {line.split()[0]: line.split()[1:5] for line in summarize(results).splitlines()[1:]}
+    assert rows["a"] == rows["b"] == ["2", "0", "2", "0.00"]  # equal scores: draws, no margin
+
+
+def test_summary_margin_is_against_the_best_opponent():
+    results = round_robin(ThreeWayGame, [High, Mid, Low], seeds=[0])
+    rows = {line.split()[0]: line.split()[1:5] for line in summarize(results).splitlines()[1:]}
+    turns = results[0].turns
+    assert rows["High"][1:] == [str(len(results)), "0", f"{turns:.2f}"]
+    assert rows["Mid"][1:] == rows["Low"][1:] == ["0", "0", f"{-turns:.2f}"]
 
 
 def test_same_class_under_different_ids():

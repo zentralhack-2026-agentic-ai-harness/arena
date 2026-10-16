@@ -1,7 +1,7 @@
 """The two interfaces every game and every strategy implements.
 
-Observations and actions are plain dicts. What they contain is defined by
-each game's spec.md, not by this module.
+Observations and actions are Python literals (dicts, lists, tuples, str, int, float, bool,
+None). What they contain is defined by each game's spec.md, not by this module.
 """
 
 from abc import ABC, abstractmethod
@@ -17,7 +17,10 @@ class Strategy(ABC):
 
     @abstractmethod
     def act(self, obs: Any) -> Any:
-        """Return this turn's action for the given observation."""
+        """Return this turn's action for the given observation: a Python literal.
+
+        Raising, or taking longer than the turn timeout (1 s by default), forfeits the match.
+        """
 
 
 class Game(ABC):

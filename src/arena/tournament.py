@@ -138,13 +138,20 @@ def _play(
 
 
 def summarize(results: list[MatchResult]) -> str:
-    """Plain-text table per strategy: matches, total and mean revenue (its scores), its share
-    of the revenue of all strategies, forfeits. Sorted by total revenue: what ranks, not wins."""
+    """Plain-text table per strategy: matches, wins, draws (no single winner), mean margin (its
+    score minus the best opponent's, per match), total and mean revenue (its scores), its share
+    of the revenue of all strategies, forfeits. Sorted by wins, then margin."""
     stats: dict[str, dict] = {}
     for r in results:
+        winner = r.winner
         for seat, name in enumerate(r.players):
-            s = stats.setdefault(name, {"n": 0, "revenue": 0.0, "F": 0})
+            s = stats.setdefault(
+                name, {"n": 0, "wins": 0, "draws": 0, "margin": 0.0, "revenue": 0.0, "F": 0}
+            )
             s["n"] += 1
+            s["wins"] += winner == seat
+            s["draws"] += winner is None
+            s["margin"] += r.scores[seat] - max(r.scores[:seat] + r.scores[seat + 1 :])
             s["revenue"] += r.scores[seat]
             if (r.forfeit_turns or [None] * len(r.players))[seat] is not None or r.forfeit == seat:
                 s["F"] += 1
@@ -152,12 +159,14 @@ def summarize(results: list[MatchResult]) -> str:
 
     width = max([len("strategy")] + [len(name) for name in stats])
     lines = [
-        f"{'strategy':<{width}}  {'matches':>7} {'revenue':>12} {'mean':>10} {'share':>7} {'F':>4}"
+        f"{'strategy':<{width}}  {'matches':>7} {'wins':>5} {'draws':>5} {'margin':>10}"
+        f" {'revenue':>12} {'mean':>10} {'share':>7} {'F':>4}"
     ]
-    for name, s in sorted(stats.items(), key=lambda kv: -kv[1]["revenue"]):
+    for name, s in sorted(stats.items(), key=lambda kv: (-kv[1]["wins"], -kv[1]["margin"])):
         share = s["revenue"] / total if total else 0.0
         lines.append(
-            f"{name:<{width}}  {s['n']:>7} {s['revenue']:>12.2f} {s['revenue'] / s['n']:>10.2f}"
+            f"{name:<{width}}  {s['n']:>7} {s['wins']:>5} {s['draws']:>5}"
+            f" {s['margin'] / s['n']:>10.2f} {s['revenue']:>12.2f} {s['revenue'] / s['n']:>10.2f}"
             f" {share:>6.1%} {s['F']:>4}"
         )
     return "\n".join(lines)

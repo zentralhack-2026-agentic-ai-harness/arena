@@ -15,6 +15,30 @@ from arena.tournament import iter_matches, rotations, round_robin, summarize, ta
 GAME_HELP = "game package (e.g. arena_games_dev.alpha) or class (e.g. ...alpha:AlphaGame)"
 
 
+TOURNAMENT_HELP = """\
+Play a tournament described by a job file, e.g.
+
+  {
+    "game": "arena_games_dev.beta",
+    "entrants": [{"id": "team_a.rep0", "strategy": "entrants/team_a.rep0.py:Strategy",
+                  "python": "/usr/bin/python3", "trusted": false}],
+    "panel": null,
+    "tables": [["team_a.rep0", "team_b.rep0"]],
+    "seeds": [0, 1, 2],
+    "isolate": true,
+    "limits": {"turn_timeout": 1.0, "uid_base": 20000},
+    "workers": 4
+  }
+
+Strategy paths resolve against the job file's directory. "panel" (optional): entrants that
+the others play instead of each other. "tables" (optional): lists of n_players ids, each
+played in all its seat rotations, instead of the tables arena.tournament.tables would make
+(e.g. to keep the runs of one team apart). "limits": arena.isolation.Limits. Every line of
+the output is one match (MatchResult.to_dict()) plus "t", the seconds since the tournament
+started when its result came in.
+"""
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="arena")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -66,8 +90,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     task.set_defaults(handler=_make_task)
 
-    tournament = sub.add_parser("tournament", help="run a tournament described by a job file")
-    tournament.add_argument("job", type=Path, help="job.json (see README)")
+    tournament = sub.add_parser(
+        "tournament",
+        help="run a tournament described by a job file",
+        description=TOURNAMENT_HELP,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    tournament.add_argument("job", type=Path, help="job.json (format: see above)")
     tournament.add_argument(
         "--out", type=Path, default=Path("matches.jsonl"), help="one JSON line per match"
     )
